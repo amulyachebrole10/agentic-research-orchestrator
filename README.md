@@ -1,42 +1,73 @@
-# Agentic Research Orchestrator
+# Agentic Research Orchestrator — Local Edition
 
-A modular research workflow built with **LangGraph** and **FastAPI**. It separates planning, evidence retrieval, evidence review, and report synthesis while retaining source metadata.
+A local-first research and document-question-answering foundation using LangGraph, FastAPI, Ollama, Sentence Transformers and FAISS. Designed for Windows 10/11 with Docker Desktop + WSL2 and an 8 GB RAM development machine.
 
-## Workflow
-Question → Planner → Research provider → Evidence review → Synthesis → Report
+## Architecture
 
-## Quick start
-```bash
-python -m venv .venv
-source .venv/bin/activate
+- LangGraph: planning → research → review → synthesis workflow.
+- Ollama + Qwen 2.5 1.5B: local answer generation (no LLM API key).
+- Sentence Transformers (all-MiniLM-L6-v2): local CPU embeddings.
+- FAISS: local vector index persisted under data/index.
+- FastAPI: REST endpoints.
+- Docker Compose: runs the API; Ollama runs natively on Windows to avoid duplicating model memory inside Docker.
+
+## Windows setup
+
+1. Install Docker Desktop and enable the WSL2 backend.
+2. Install Ollama for Windows from https://ollama.com/download.
+3. In PowerShell, download the small model:
+
+~~~powershell
+ollama pull qwen2.5:1.5b
+ollama serve
+~~~
+
+4. Copy .env.example to .env.
+5. Start the API:
+
+~~~powershell
+docker compose up --build
+~~~
+
+Open http://localhost:8000/docs.
+
+## API
+
+Add text to the local vector store:
+
+~~~powershell
+Invoke-RestMethod -Method Post http://localhost:8000/documents/text -ContentType "application/json" -Body '{"text":"FAISS is a library for efficient similarity search.","source":"notes.txt"}'
+~~~
+
+Ask a question over indexed documents:
+
+~~~powershell
+Invoke-RestMethod -Method Post http://localhost:8000/ask -ContentType "application/json" -Body '{"question":"What is FAISS?"}'
+~~~
+
+/research currently remains an explicitly labelled offline demo workflow. It does not claim to search the live web. Public-source adapters and PDF upload are planned next.
+
+## Run without Docker
+
+~~~powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload
-```
-Open http://127.0.0.1:8000/docs.
+~~~
 
-```bash
-curl -X POST http://127.0.0.1:8000/research -H 'Content-Type: application/json' -d '{"question":"How should teams evaluate RAG systems?","max_sources":3}'
-```
+Set OLLAMA_BASE_URL=http://localhost:11434 in .env for a native Python run.
 
-## Docker
-```bash
-docker build -t research-orchestrator .
-docker run -p 8000:8000 research-orchestrator
-```
+## Resource guidance
+
+Use Qwen 2.5 1.5B, a short context window and CPU embeddings. The first embedding-model run downloads model weights. Keep other model-heavy applications closed. Ollama runs on Windows while the API container connects through host.docker.internal.
 
 ## Tests
-```bash
+
+~~~powershell
 pytest
-```
+~~~
 
-## Structure
-- `app/graph.py`: LangGraph state machine.
-- `app/providers.py`: provider protocol and offline demo provider.
-- `app/main.py`: REST API.
-- `tests/`: API tests.
+## Security and limitations
 
-## Live integrations
-Implement `ResearchProvider` with a search API and LLM. Preserve title, URL, and excerpt for every source; cite only retrieved evidence. Store credentials in environment variables or a secrets manager.
-
-## Scope and limitations
-The included provider returns illustrative demo sources. This is an executable integration foundation, not live web research or autonomous fact verification. Add real providers, authentication, persistence, observability, rate limits, and human approval before production use.
+This is a local development portfolio project, not a production research service. Add authentication, upload validation, persistence controls, observability, source freshness checks, citation evaluation and human review before deployment. Never commit .env, private documents or model weights.
