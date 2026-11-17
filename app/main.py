@@ -1,9 +1,12 @@
-from fastapi import FastAPI, HTTPException
+import os
+import tempfile
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 from app.graph import ResearchWorkflow
 from app.local_rag import LocalRAG
 
-app = FastAPI(title="Agentic Research Orchestrator", version="0.2.0")
+app = FastAPI(title="Agentic Research Orchestrator", version="0.2.1")
 workflow = ResearchWorkflow()
 rag = LocalRAG()
 
@@ -41,6 +44,26 @@ def add_document(request: DocumentRequest):
         return {"status": "indexed", "source": request.source, "chunks_added": count}
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Document indexing failed") from exc
+
+@app.post("/documents/pdf")
+async def add_pdf(file: UploadFile = File(...)):
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=415, detail="Upload a PDF file")
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="PDF must be 20 MB or smaller")
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
+            temp.write(content)
+            temp_path = temp.name
+        count = rag.add_pdf(temp_path)
+        return {"status": "indexed", "source": file.filename, "chunks_added": count}
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Could not extract text from this PDF") from exc
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @app.post("/ask")
 def ask(request: AskRequest):
